@@ -105,7 +105,7 @@ class BrainClassifier:
         prompt = CLASSIFICATION_PROMPT.format(profile_data=data.text_content)
 
         response = await self._anthropic_client.messages.create(
-            model="claude-3-sonnet-20240229",
+            model="claude-3-haiku-20240307",
             max_tokens=1024,
             messages=[
                 {"role": "user", "content": prompt}
