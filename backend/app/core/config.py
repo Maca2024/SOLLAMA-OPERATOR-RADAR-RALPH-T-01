@@ -9,7 +9,7 @@ class Settings(BaseSettings):
 
     # App
     APP_NAME: str = "Solvari Radar"
-    APP_VERSION: str = "1.0.0"
+    APP_VERSION: str = "2.1.0"
     DEBUG: bool = True
 
     # API
@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
 
+    # KVK API
+    KVK_API_KEY: Optional[str] = None
+    KVK_USE_PRODUCTION: bool = False
+
+    # Google Places API
+    GOOGLE_PLACES_API_KEY: Optional[str] = None
+
     # Scraper Settings
     SCRAPER_DELAY_MIN: float = 1.0
     SCRAPER_DELAY_MAX: float = 3.0
@@ -35,6 +42,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"  # Allow extra env vars
 
 
 @lru_cache()

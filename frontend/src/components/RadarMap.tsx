@@ -55,6 +55,7 @@ const createRingIcon = (ring: number) => {
   });
 };
 
+// KVK marker without GPS (purple with dashed border)
 const kvkIcon = L.divIcon({
   className: 'kvk-marker',
   html: `<div style="
@@ -62,7 +63,7 @@ const kvkIcon = L.divIcon({
     width: 20px;
     height: 20px;
     border-radius: 50%;
-    border: 2px solid white;
+    border: 2px dashed white;
     box-shadow: 0 2px 6px rgba(0,0,0,0.3);
     display: flex;
     align-items: center;
@@ -70,6 +71,24 @@ const kvkIcon = L.divIcon({
   "><span style="color: white; font-size: 10px; font-weight: bold;">K</span></div>`,
   iconSize: [20, 20],
   iconAnchor: [10, 10],
+});
+
+// KVK marker with real GPS (green border)
+const kvkGeoIcon = L.divIcon({
+  className: 'kvk-marker-geo',
+  html: `<div style="
+    background-color: #8b5cf6;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 3px solid #22c55e;
+    box-shadow: 0 2px 8px rgba(34, 197, 94, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  "><span style="color: white; font-size: 10px; font-weight: bold;">K</span></div>`,
+  iconSize: [22, 22],
+  iconAnchor: [11, 11],
 });
 
 interface KvkResult {
@@ -167,7 +186,7 @@ export function RadarMap({ onTargetSelect, onRunRadar }: RadarMapProps) {
   const [mapZoom, setMapZoom] = useState(7);
   const [mapLayer, setMapLayer] = useState<'street' | 'satellite'>('street');
 
-  // Search KVK API
+  // Search KVK API with real GPS coordinates
   const searchKvK = useCallback(async () => {
     if (!searchQuery && !selectedCity && !selectedTrade) return;
 
@@ -188,40 +207,104 @@ export function RadarMap({ onTargetSelect, onRunRadar }: RadarMapProps) {
         params.append('plaats', selectedCity.name);
       }
 
-      const response = await fetch(`/api/v1/kvk/search?${params}`);
-      if (response.ok) {
-        const data = await response.json();
-        setKvkResults(data.resultaten || []);
-
-        // Create markers from results
-        const newMarkers: MapMarker[] = [];
-        for (const r of data.resultaten || []) {
-          // Try to get GPS data from vestigingsprofiel
-          let lat = selectedCity?.lat || NL_CENTER[0];
-          let lng = selectedCity?.lng || NL_CENTER[1];
-
-          // Add some randomness for demo (real GPS would come from vestigingsprofiel)
-          lat += (Math.random() - 0.5) * 0.05;
-          lng += (Math.random() - 0.5) * 0.05;
-
-          newMarkers.push({
-            id: r.kvkNummer,
-            lat,
-            lng,
-            name: r.naam,
-            type: 'kvk',
-            kvkNummer: r.kvkNummer,
-            details: r,
-          });
-        }
-        setMarkers(newMarkers);
-
-        // Center map on results
-        if (selectedCity) {
-          setMapCenter([selectedCity.lat, selectedCity.lng]);
-          setMapZoom(12);
-        }
+      // Fetch search results
+      const response = await fetch(`http://localhost:8001/api/v1/kvk/search?${params}`);
+      if (!response.ok) {
+        throw new Error('KVK search failed');
       }
+
+      const data = await response.json();
+      const resultaten = data.resultaten || [];
+      setKvkResults(resultaten);
+
+      // Fetch GPS coordinates for each result with vestigingsnummer
+      const newMarkers: MapMarker[] = [];
+      const geoPromises = resultaten
+        .filter((r: KvkResult) => r.vestigingsnummer)
+        .map(async (r: KvkResult) => {
+          try {
+            const geoResponse = await fetch(
+              `http://localhost:8001/api/v1/kvk/vestigingsprofiel/${r.vestigingsnummer}?geoData=true`
+            );
+            if (geoResponse.ok) {
+              const vestiging = await geoResponse.json();
+              // Find address with valid GPS coordinates (bezoekadres preferred)
+              const adresWithGeo = vestiging.adressen?.find(
+                (a: any) => a.geoData?.gpsLatitude && a.geoData?.gpsLatitude !== 0
+              );
+              if (adresWithGeo?.geoData) {
+                return {
+                  kvkNummer: r.kvkNummer,
+                  vestigingsnummer: r.vestigingsnummer,
+                  lat: adresWithGeo.geoData.gpsLatitude,
+                  lng: adresWithGeo.geoData.gpsLongitude,
+                  adres: adresWithGeo,
+                };
+              }
+            }
+          } catch (err) {
+            console.warn(`Could not fetch geo for ${r.vestigingsnummer}:`, err);
+          }
+          return null;
+        });
+
+      const geoResults = await Promise.all(geoPromises);
+      const geoMap = new Map(
+        geoResults
+          .filter((g): g is NonNullable<typeof g> => g !== null)
+          .map((g) => [g.kvkNummer, g])
+      );
+
+      // Create markers with real coordinates or fallback to city center
+      for (const r of resultaten) {
+        const geo = geoMap.get(r.kvkNummer);
+
+        let lat: number;
+        let lng: number;
+        let hasRealGeo = false;
+
+        if (geo?.lat && geo?.lng) {
+          // Use real GPS from vestigingsprofiel
+          lat = geo.lat;
+          lng = geo.lng;
+          hasRealGeo = true;
+        } else if (selectedCity) {
+          // Fallback: place near selected city with small offset
+          lat = selectedCity.lat + (Math.random() - 0.5) * 0.02;
+          lng = selectedCity.lng + (Math.random() - 0.5) * 0.02;
+        } else {
+          // Fallback: place in Netherlands center with offset
+          lat = NL_CENTER[0] + (Math.random() - 0.5) * 0.5;
+          lng = NL_CENTER[1] + (Math.random() - 0.5) * 0.5;
+        }
+
+        newMarkers.push({
+          id: `${r.kvkNummer}-${r.vestigingsnummer || 'main'}`,
+          lat,
+          lng,
+          name: r.naam,
+          type: 'kvk',
+          kvkNummer: r.kvkNummer,
+          details: {
+            ...r,
+            hasRealGeo,
+            geoData: geo ? { gpsLatitude: geo.lat, gpsLongitude: geo.lng } : undefined,
+          },
+        });
+      }
+
+      setMarkers(newMarkers);
+
+      // Center map on first result with real coordinates, or selected city
+      const firstWithGeo = newMarkers.find(m => m.details?.hasRealGeo);
+      if (firstWithGeo) {
+        setMapCenter([firstWithGeo.lat, firstWithGeo.lng]);
+        setMapZoom(13);
+      } else if (selectedCity) {
+        setMapCenter([selectedCity.lat, selectedCity.lng]);
+        setMapZoom(12);
+      }
+
     } catch (error) {
       console.error('KVK search failed:', error);
     } finally {
@@ -452,43 +535,71 @@ export function RadarMap({ onTargetSelect, onRunRadar }: RadarMapProps) {
           )}
 
           {/* KVK Result Markers */}
-          {markers.map((marker) => (
+          {markers.map((marker) => {
+            // Determine icon: selected (red), GPS exact (green border), or estimated (dashed)
+            let icon;
+            if (selectedResults.has(marker.kvkNummer || marker.id)) {
+              icon = createRingIcon(1); // Red for selected
+            } else if (marker.details?.hasRealGeo) {
+              icon = kvkGeoIcon; // Green border for GPS exact
+            } else {
+              icon = kvkIcon; // Dashed border for estimated
+            }
+
+            return (
             <Marker
               key={marker.id}
               position={[marker.lat, marker.lng]}
-              icon={selectedResults.has(marker.id) ? createRingIcon(1) : kvkIcon}
+              icon={icon}
               eventHandlers={{
-                click: () => toggleResultSelection(marker.id),
+                click: () => toggleResultSelection(marker.kvkNummer || marker.id),
               }}
             >
               <Popup>
-                <div className="min-w-[200px]">
+                <div className="min-w-[220px]">
                   <h3 className="font-bold text-gray-900">{marker.name}</h3>
                   <p className="text-sm text-gray-600">KvK: {marker.kvkNummer}</p>
                   {marker.details?.adres?.binnenlandsAdres && (
                     <p className="text-sm text-gray-500">
-                      {marker.details.adres.binnenlandsAdres.straatnaam}{' '}
+                      📍 {marker.details.adres.binnenlandsAdres.straatnaam}{' '}
                       {marker.details.adres.binnenlandsAdres.huisnummer},{' '}
                       {marker.details.adres.binnenlandsAdres.plaats}
                     </p>
                   )}
-                  <p className="text-xs text-gray-400 mt-1">
-                    Type: {marker.details?.type}
-                  </p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded">
+                      {marker.details?.type}
+                    </span>
+                    {marker.details?.hasRealGeo ? (
+                      <span className="text-xs px-1.5 py-0.5 bg-green-100 text-green-700 rounded">
+                        ✓ GPS Exact
+                      </span>
+                    ) : (
+                      <span className="text-xs px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded">
+                        ~ Geschat
+                      </span>
+                    )}
+                  </div>
+                  {marker.details?.hasRealGeo && (
+                    <p className="text-xs text-gray-400 mt-1">
+                      Lat: {marker.lat.toFixed(5)}, Lng: {marker.lng.toFixed(5)}
+                    </p>
+                  )}
                   <button
-                    onClick={() => toggleResultSelection(marker.id)}
+                    onClick={() => toggleResultSelection(marker.kvkNummer || marker.id)}
                     className={`mt-2 w-full py-1 rounded text-sm font-medium ${
-                      selectedResults.has(marker.id)
+                      selectedResults.has(marker.kvkNummer || marker.id)
                         ? 'bg-green-500 text-white'
                         : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                     }`}
                   >
-                    {selectedResults.has(marker.id) ? 'Geselecteerd' : 'Selecteren'}
+                    {selectedResults.has(marker.kvkNummer || marker.id) ? '✓ Geselecteerd' : 'Selecteren'}
                   </button>
                 </div>
               </Popup>
             </Marker>
-          ))}
+            );
+          })}
         </MapContainer>
 
         {/* Map Legend */}
@@ -503,8 +614,18 @@ export function RadarMap({ onTargetSelect, onRunRadar }: RadarMapProps) {
               <span>Geselecteerd</span>
             </div>
           </div>
+          <div className="flex items-center gap-3 mt-1.5 pt-1.5 border-t border-white/20">
+            <div className="flex items-center gap-1">
+              <span className="text-green-400">✓</span>
+              <span>GPS Exact ({markers.filter(m => m.details?.hasRealGeo).length})</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <span className="text-yellow-400">~</span>
+              <span>Geschat ({markers.filter(m => !m.details?.hasRealGeo).length})</span>
+            </div>
+          </div>
           <div className="mt-1 text-gray-500">
-            Markers: {markers.length} | Selected: {selectedResults.size}
+            Totaal: {markers.length} | Geselecteerd: {selectedResults.size}
           </div>
         </div>
 

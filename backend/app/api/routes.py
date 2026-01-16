@@ -634,3 +634,199 @@ async def kvk_scan_and_classify(
 
     await session.commit()
     return {"scanned": len(results), "results": results}
+
+
+# ============== Additional Scraper Endpoints ==============
+
+@router.get("/scrape/marktplaats")
+async def scrape_marktplaats(
+    category: str = "loodgieter",
+    location: Optional[str] = None,
+    max_pages: int = 2,
+):
+    """
+    Scrape Marktplaats Diensten for vakmensen
+
+    Categories: loodgieter, elektricien, schilder, timmerman, dakdekker,
+                tuinman, stukadoor, tegelzetter, schoonmaak, klusjesman
+    """
+    from ..modules.scrapers import MarktplaatsScraper
+
+    scraper = MarktplaatsScraper()
+    results = await scraper.search_vakmensen(
+        category=category,
+        location=location,
+        max_pages=max_pages,
+    )
+
+    return {
+        "source": "marktplaats",
+        "category": category,
+        "location": location,
+        "total": len(results),
+        "results": [r.model_dump() for r in results],
+    }
+
+
+@router.get("/scrape/werkspot")
+async def scrape_werkspot(
+    category: str = "loodgieter",
+    location: Optional[str] = None,
+    max_pages: int = 2,
+):
+    """
+    Scrape Werkspot for vakmensen profiles
+
+    Categories: loodgieter, elektricien, schilder, timmerman, dakdekker,
+                aannemer, klusjesman, cv_monteur, tegelzetter, stukadoor,
+                zonnepanelen, warmtepomp, badkamer, keuken
+    """
+    from ..modules.scrapers import WerkspotScraper
+
+    scraper = WerkspotScraper()
+    results = await scraper.search_vakmensen(
+        category=category,
+        location=location,
+        max_pages=max_pages,
+    )
+
+    return {
+        "source": "werkspot",
+        "category": category,
+        "location": location,
+        "total": len(results),
+        "results": [r.model_dump() for r in results],
+    }
+
+
+@router.get("/scrape/google-places")
+async def scrape_google_places(
+    category: str = "loodgieter",
+    location: str = "Amsterdam",
+    radius_km: int = 15,
+):
+    """
+    Search Google Places for vakmensen businesses
+
+    Requires GOOGLE_PLACES_API_KEY environment variable
+
+    Categories: loodgieter, elektricien, schilder, timmerman, dakdekker,
+                aannemer, cv_monteur, installateur, tuinman, zonnepanelen
+    """
+    from ..modules.scrapers import GooglePlacesClient
+
+    client = GooglePlacesClient()
+
+    if not client.api_key:
+        return {
+            "error": "Google Places API key not configured",
+            "help": "Set GOOGLE_PLACES_API_KEY environment variable",
+        }
+
+    results = await client.search_vakmensen(
+        category=category,
+        location=location,
+        radius_m=radius_km * 1000,
+    )
+
+    return {
+        "source": "google_places",
+        "category": category,
+        "location": location,
+        "radius_km": radius_km,
+        "total": len(results),
+        "results": [r.model_dump() for r in results],
+    }
+
+
+@router.get("/scrape/all")
+async def scrape_all_sources(
+    category: str = "loodgieter",
+    location: str = "Amsterdam",
+):
+    """
+    Scrape all available sources for vakmensen
+
+    Combines results from Marktplaats, Werkspot, and Google Places
+    """
+    from ..modules.scrapers import MarktplaatsScraper, WerkspotScraper, GooglePlacesClient
+
+    results = {
+        "category": category,
+        "location": location,
+        "sources": {},
+        "total": 0,
+    }
+
+    # Marktplaats
+    try:
+        mp_scraper = MarktplaatsScraper()
+        mp_results = await mp_scraper.search_vakmensen(category=category, location=location, max_pages=1)
+        results["sources"]["marktplaats"] = {
+            "count": len(mp_results),
+            "results": [r.model_dump() for r in mp_results[:10]],  # Limit to 10
+        }
+        results["total"] += len(mp_results)
+    except Exception as e:
+        results["sources"]["marktplaats"] = {"error": str(e)}
+
+    # Werkspot
+    try:
+        ws_scraper = WerkspotScraper()
+        ws_results = await ws_scraper.search_vakmensen(category=category, location=location, max_pages=1)
+        results["sources"]["werkspot"] = {
+            "count": len(ws_results),
+            "results": [r.model_dump() for r in ws_results[:10]],
+        }
+        results["total"] += len(ws_results)
+    except Exception as e:
+        results["sources"]["werkspot"] = {"error": str(e)}
+
+    # Google Places
+    try:
+        gp_client = GooglePlacesClient()
+        if gp_client.api_key:
+            gp_results = await gp_client.search_vakmensen(category=category, location=location)
+            results["sources"]["google_places"] = {
+                "count": len(gp_results),
+                "results": [r.model_dump() for r in gp_results[:10]],
+            }
+            results["total"] += len(gp_results)
+        else:
+            results["sources"]["google_places"] = {"error": "API key not configured"}
+    except Exception as e:
+        results["sources"]["google_places"] = {"error": str(e)}
+
+    return results
+
+
+@router.get("/config/status")
+async def get_config_status():
+    """
+    Get current configuration status for all integrations
+    """
+    import os
+    from ..modules.kvk import KvKClient
+    from ..modules.scrapers import GooglePlacesClient
+
+    kvk_client = KvKClient()
+    google_client = GooglePlacesClient()
+
+    return {
+        "kvk": {
+            "mode": "TEST" if kvk_client.use_test else "PRODUCTION",
+            "base_url": kvk_client.base_url,
+            "api_key_set": bool(kvk_client.api_key),
+        },
+        "google_places": {
+            "api_key_set": bool(google_client.api_key),
+            "enabled": bool(google_client.api_key),
+        },
+        "anthropic": {
+            "api_key_set": bool(os.getenv("ANTHROPIC_API_KEY")),
+        },
+        "scrapers": {
+            "marktplaats": {"enabled": True},
+            "werkspot": {"enabled": True},
+        },
+    }

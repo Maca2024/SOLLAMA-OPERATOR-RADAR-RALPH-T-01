@@ -39,6 +39,8 @@ services:
     container_name: solvari_backend
     ports:
       - "8001:8000"
+    env_file:
+      - ./backend/.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/solvari_radar
       - REDIS_URL=redis://redis:6379/0

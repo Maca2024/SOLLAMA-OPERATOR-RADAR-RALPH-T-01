@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { Stats, Profile, RingInfo, PipelineResult, OutreachMessage } from '../types';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
 const API_PREFIX = '/api/v1';
 
 const api = axios.create({
@@ -196,6 +196,44 @@ export async function getKvKBasisprofiel(kvkNummer: string): Promise<{
   }>;
 }> {
   const { data } = await api.get(`/kvk/basisprofiel/${kvkNummer}`);
+  return data;
+}
+
+// Get vestigingsprofiel with GPS coordinates
+export interface KvKGeoData {
+  gpsLatitude: number;
+  gpsLongitude: number;
+}
+
+export interface KvKAdres {
+  type: string;
+  volledigAdres?: string;
+  straatnaam?: string;
+  huisnummer?: number;
+  postcode?: string;
+  plaats?: string;
+  land?: string;
+  geoData?: KvKGeoData;
+}
+
+export interface KvKVestigingsprofiel {
+  vestigingsnummer: string;
+  kvkNummer?: string;
+  eersteHandelsnaam?: string;
+  indHoofdvestiging?: string;
+  adressen?: KvKAdres[];
+  sbiActiviteiten?: Array<{
+    sbiCode: string;
+    sbiOmschrijving: string;
+  }>;
+  totaalWerkzamePersonen?: number;
+}
+
+export async function getKvKVestigingsprofiel(
+  vestigingsnummer: string,
+  geoData = true
+): Promise<KvKVestigingsprofiel> {
+  const { data } = await api.get(`/kvk/vestigingsprofiel/${vestigingsnummer}?geoData=${geoData}`);
   return data;
 }
 

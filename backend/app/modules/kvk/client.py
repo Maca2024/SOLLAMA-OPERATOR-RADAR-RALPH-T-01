@@ -1,4 +1,4 @@
-"""KVK Handelsregister API Client - Real Test Environment"""
+"""KVK Handelsregister API Client - Test & Production Support"""
 import os
 from typing import Optional, List
 import httpx
@@ -20,6 +20,10 @@ class KvKClient:
 
     API Documentation: https://developers.kvk.nl/
 
+    Environment Variables:
+    - KVK_API_KEY: Your KVK API key (required for production)
+    - KVK_USE_PRODUCTION: Set to "true" to use production API
+
     Endpoints:
     - Zoeken (v2): Search for companies
     - Basisprofiel (v1): Get company basic profile
@@ -35,30 +39,39 @@ class KvKClient:
     # Default test API key (public, for test environment only)
     DEFAULT_TEST_API_KEY = "l7xx1f2691f2520d487b902f4e0b57a0b197"
 
-    def __init__(self, api_key: Optional[str] = None, use_test: bool = True):
+    def __init__(self, api_key: Optional[str] = None, use_test: Optional[bool] = None):
         """
         Initialize KVK client
 
         Args:
-            api_key: KVK API key (uses test key if not provided)
-            use_test: Use test API (default True for development)
+            api_key: KVK API key (uses env KVK_API_KEY or test key if not provided)
+            use_test: Use test API (default: checks KVK_USE_PRODUCTION env var)
         """
-        self.use_test = use_test
-        self.base_url = self.TEST_BASE_URL if use_test else self.PROD_BASE_URL
+        # Determine if we should use production
+        if use_test is None:
+            # Check environment variable
+            use_production = os.getenv("KVK_USE_PRODUCTION", "").lower() in ("true", "1", "yes")
+            self.use_test = not use_production
+        else:
+            self.use_test = use_test
+
+        self.base_url = self.TEST_BASE_URL if self.use_test else self.PROD_BASE_URL
 
         # Use provided key, environment variable, or default test key
         if api_key:
             self.api_key = api_key
         elif os.getenv("KVK_API_KEY"):
             self.api_key = os.getenv("KVK_API_KEY")
-        elif use_test:
+            logger.info("KVK: Using API key from environment")
+        elif self.use_test:
             self.api_key = self.DEFAULT_TEST_API_KEY
             logger.info("KVK: Using default test API key")
         else:
             self.api_key = None
-            logger.warning("KVK: No API key - some requests may fail")
+            logger.warning("KVK: No API key set for PRODUCTION - requests will fail!")
 
-        logger.info(f"KVK client initialized (test={use_test}, base={self.base_url})")
+        mode = "TEST" if self.use_test else "PRODUCTION"
+        logger.info(f"KVK client initialized ({mode} mode, base={self.base_url})")
 
     async def _request(self, endpoint: str, params: Optional[dict] = None) -> dict:
         """Make authenticated request to KVK API"""
