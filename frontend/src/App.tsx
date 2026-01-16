@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { RefreshCw, Filter } from 'lucide-react';
 import {
@@ -8,19 +8,36 @@ import {
   ProfileCard,
   PipelineControl,
   RingDistribution,
+  RadarMap,
 } from './components';
-import { useStats, useProfiles } from './hooks/useApi';
+import { useStats, useProfiles, usePipeline } from './hooks/useApi';
 import { RING_NAMES } from './types';
 
 function App() {
   const [selectedRing, setSelectedRing] = useState<number | undefined>();
   const { stats, loading: statsLoading, refetch: refetchStats } = useStats();
   const { profiles, loading: profilesLoading, refetch: refetchProfiles } = useProfiles(selectedRing);
+  const { execute: executePipeline } = usePipeline();
 
   const handlePipelineComplete = () => {
     refetchStats();
     refetchProfiles();
   };
+
+  // Handle KVK targets from RadarMap
+  const handleKvkTargets = useCallback(async (targets: any[]) => {
+    if (targets.length === 0) return;
+
+    // Convert KVK results to URLs for pipeline
+    const urls = targets.map(t => `kvk://${t.kvkNummer}`);
+    try {
+      await executePipeline(urls, 'kvk');
+      refetchStats();
+      refetchProfiles();
+    } catch (error) {
+      console.error('Pipeline failed:', error);
+    }
+  }, [executePipeline, refetchStats, refetchProfiles]);
 
   return (
     <div className="min-h-screen bg-solvari-dark bg-grid">
@@ -50,7 +67,22 @@ function App() {
           <StatsCards stats={stats} loading={statsLoading} />
         </section>
 
-        {/* Main Grid */}
+        {/* Pipeline Control - Full Width */}
+        <section className="mb-8">
+          <PipelineControl onComplete={handlePipelineComplete} />
+        </section>
+
+        {/* Radar Map - Full Width - KVK Integration */}
+        <section className="mb-8">
+          <RadarMap
+            onTargetSelect={handleKvkTargets}
+            onRunRadar={(location, type) => {
+              console.log(`Radar scan: ${location} - ${type}`);
+            }}
+          />
+        </section>
+
+        {/* Secondary Grid: Radar Viz + Ring Distribution */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
           {/* Radar Visualization */}
           <motion.div
@@ -64,29 +96,22 @@ function App() {
             <RadarVisualization stats={stats} />
           </motion.div>
 
-          {/* Pipeline Control */}
-          <div className="lg:col-span-2">
-            <PipelineControl onComplete={handlePipelineComplete} />
-          </div>
-        </div>
-
-        {/* Ring Distribution */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+          {/* Ring Distribution */}
           <RingDistribution stats={stats} />
 
           {/* Ring Legend */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="glass rounded-xl p-6 lg:col-span-2"
+            className="glass rounded-xl p-6"
           >
             <h2 className="text-xl font-bold text-white mb-4">The 4-Ring System</h2>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-3">
               {[
-                { ring: 1, emoji: '🔴', desc: 'Established businesses (>5 years)', hooks: ['Agenda-vulling', 'Instant Payouts'] },
-                { ring: 2, emoji: '🟠', desc: 'Growing freelancers, tech-savvy', hooks: ['Admin-Bot', 'Lead Radar'] },
-                { ring: 3, emoji: '🟡', desc: 'Part-timers & starters', hooks: ['Starter Program', 'ZZP Wizard'] },
-                { ring: 4, emoji: '🔵', desc: 'Internal Solvari staff', hooks: ['Dashboard', 'Monitoring'] },
+                { ring: 1, emoji: '🔴', desc: 'Gevestigd (>5 jaar)', hooks: ['Agenda-vulling', 'Instant Payouts'] },
+                { ring: 2, emoji: '🟠', desc: 'Groeiende ZZP\'er', hooks: ['Admin-Bot', 'Lead Radar'] },
+                { ring: 3, emoji: '🟡', desc: 'Starters & Hobbyisten', hooks: ['Starter Program', 'ZZP Wizard'] },
+                { ring: 4, emoji: '🔵', desc: 'Intern Solvari team', hooks: ['Dashboard', 'Monitoring'] },
               ].map(({ ring, emoji, desc, hooks }) => (
                 <div key={ring} className="p-3 bg-white/5 rounded-lg">
                   <div className="flex items-center gap-2 mb-1">
@@ -151,7 +176,7 @@ function App() {
               <div className="text-6xl mb-4">🔭</div>
               <h3 className="text-xl font-semibold text-white mb-2">No profiles yet</h3>
               <p className="text-gray-400">
-                Use the pipeline control above to start discovering contractors
+                Use the pipeline control or Radar Map above to start discovering contractors
               </p>
             </motion.div>
           ) : (
@@ -171,7 +196,10 @@ function App() {
             ⟁ <span className="text-solvari-primary">Solvari Radar</span> - Autonomous Supply-Side Acquisition Engine
           </p>
           <p className="mt-1">
-            Powered by AI | Built for the Dutch market
+            Powered by AI | Built for the Dutch market | KVK Integrated
+          </p>
+          <p className="mt-2 text-xs">
+            &copy; 2026 Aetherlink.ai - MIT License
           </p>
         </div>
       </footer>

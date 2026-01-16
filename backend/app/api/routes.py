@@ -13,6 +13,7 @@ from ..models import ProfileRing, ScrapedData, ProfileClassification, OutreachMe
 from ..modules.radar import RadarScraper
 from ..modules.brain import BrainClassifier
 from ..modules.hook import HookGenerator
+from ..modules.kvk import KvKClient
 
 router = APIRouter()
 
@@ -366,3 +367,221 @@ async def get_ring_info():
             },
         ]
     }
+
+
+# ============== KVK Integration Endpoints ==============
+
+@router.get("/kvk/search")
+async def kvk_search(
+    query: Optional[str] = None,
+    kvkNummer: Optional[str] = None,
+    handelsnaam: Optional[str] = None,
+    straatnaam: Optional[str] = None,
+    plaats: Optional[str] = None,
+    postcode: Optional[str] = None,
+    sbi: Optional[str] = None,
+    type: Optional[str] = None,
+    pagina: int = 1,
+    resultatenPerPagina: int = 10,
+):
+    """
+    Search KVK Handelsregister
+
+    Search for companies by various criteria including:
+    - Free text query
+    - KVK number
+    - Trade name (handelsnaam)
+    - Address (straatnaam, plaats, postcode)
+    - SBI activity code
+    - Type (hoofdvestiging, nevenvestiging, rechtspersoon)
+    """
+    client = KvKClient(use_test=True)
+
+    result = await client.search(
+        query=query,
+        kvk_nummer=kvkNummer,
+        handelsnaam=handelsnaam,
+        straatnaam=straatnaam,
+        plaats=plaats,
+        postcode=postcode,
+        sbi=sbi,
+        type_filter=type,
+        pagina=pagina,
+        per_pagina=resultatenPerPagina,
+    )
+
+    return {
+        "pagina": result.pagina,
+        "resultatenPerPagina": result.resultatenPerPagina,
+        "totaal": result.totaal,
+        "resultaten": [
+            {
+                "kvkNummer": r.kvkNummer,
+                "vestigingsnummer": r.vestigingsnummer,
+                "naam": r.naam,
+                "adres": r.adres,
+                "type": r.type,
+                "sbiActiviteiten": [
+                    {"sbiCode": s.sbiCode, "sbiOmschrijving": s.sbiOmschrijving}
+                    for s in (r.sbiActiviteiten or [])
+                ],
+            }
+            for r in result.resultaten
+        ],
+    }
+
+
+@router.get("/kvk/basisprofiel/{kvk_nummer}")
+async def kvk_basisprofiel(kvk_nummer: str):
+    """
+    Get company basic profile from KVK
+
+    Returns basic company information including:
+    - Company name
+    - Registration date
+    - SBI activities
+    - Trade names
+    """
+    client = KvKClient(use_test=True)
+    profile = await client.get_basisprofiel(kvk_nummer)
+    return profile.model_dump()
+
+
+@router.get("/kvk/vakmensen")
+async def kvk_vakmensen(
+    plaats: Optional[str] = None,
+    vakgebied: Optional[str] = None,
+    sbi: Optional[str] = None,
+):
+    """
+    Search for vakmensen (contractors) in KVK
+
+    Convenience endpoint for finding contractors by:
+    - Location (plaats/gemeente)
+    - Trade category (vakgebied: loodgieter, elektra, schilder, etc.)
+    - SBI code
+    """
+    client = KvKClient(use_test=True)
+
+    result = await client.search_vakmensen(
+        plaats=plaats,
+        vakgebied=vakgebied,
+        sbi_codes=[sbi] if sbi else None,
+    )
+
+    return {
+        "pagina": result.pagina,
+        "totaal": result.totaal,
+        "vakmensen": [
+            {
+                "kvkNummer": r.kvkNummer,
+                "naam": r.naam,
+                "plaats": r.adres.get("binnenlandsAdres", {}).get("plaats") if r.adres else None,
+                "adres": r.adres.get("binnenlandsAdres", {}).get("volledigAdres") if r.adres else None,
+                "type": r.type,
+                "activiteiten": [s.sbiOmschrijving for s in (r.sbiActiviteiten or [])],
+            }
+            for r in result.resultaten
+        ],
+    }
+
+
+@router.post("/kvk/scan")
+async def kvk_scan_and_classify(
+    kvk_nummers: List[str],
+    auto_generate_outreach: bool = True,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Scan KVK profiles and run them through the classification pipeline
+
+    This endpoint:
+    1. Fetches company data from KVK
+    2. Classifies each company into the 4-Ring system
+    3. Optionally generates outreach messages
+    """
+    db = get_db()
+    results = []
+
+    client = KvKClient(use_test=True)
+    classifier = BrainClassifier()
+    generator = HookGenerator()
+
+    for kvk_nummer in kvk_nummers:
+        try:
+            # Get profile from KVK
+            profile = await client.get_basisprofiel(kvk_nummer)
+
+            # Create scraped data from KVK profile
+            text_content = f"""
+            Bedrijfsnaam: {profile.naam}
+            KvK-nummer: {profile.kvkNummer}
+            Registratiedatum: {profile.formeleRegistratiedatum}
+            Activiteiten: {', '.join(s.sbiOmschrijving for s in (profile.sbiActiviteiten or []))}
+            """
+
+            scraped = ScrapedData(
+                url=f"kvk://{kvk_nummer}",
+                text_content=text_content,
+                source_type="kvk",
+                metadata={"kvk_nummer": kvk_nummer},
+            )
+
+            # Classify
+            classification = await classifier.classify(scraped)
+
+            # Save profile
+            profile_data = {
+                "source_url": f"kvk://{kvk_nummer}",
+                "source_type": "kvk",
+                "name": profile.naam,
+                "kvk_number": kvk_nummer,
+                "ring": classification.ring.value,
+                "quality_score": classification.quality_score,
+                "confidence": classification.confidence,
+                "classification_reasoning": classification.reasoning,
+                "extracted_data": {
+                    "kvk_nummer": kvk_nummer,
+                    "sbi_activiteiten": [s.sbiCode for s in (profile.sbiActiviteiten or [])],
+                },
+                "raw_text": text_content,
+                "classified_at": datetime.utcnow(),
+            }
+            saved_profile = await db.save_profile(session, profile_data)
+
+            result = {
+                "kvkNummer": kvk_nummer,
+                "success": True,
+                "profile_id": str(saved_profile.id),
+                "ring": classification.ring.value,
+                "ring_name": ProfileRing(classification.ring).name,
+                "quality_score": classification.quality_score,
+            }
+
+            # Generate outreach
+            if auto_generate_outreach:
+                message = generator.generate(saved_profile.id, classification)
+                await db.save_outreach(session, {
+                    "profile_id": message.profile_id,
+                    "ring": message.ring.value,
+                    "channel": message.channel,
+                    "template_type": message.template_type,
+                    "subject": message.subject,
+                    "body": message.body,
+                    "personalization_tokens": message.personalization_tokens,
+                })
+                result["outreach_channel"] = message.channel
+
+            results.append(result)
+            logger.info(f"KVK scan: {kvk_nummer} -> Ring {classification.ring.value}")
+
+        except Exception as e:
+            results.append({
+                "kvkNummer": kvk_nummer,
+                "success": False,
+                "error": str(e),
+            })
+            logger.error(f"KVK scan failed for {kvk_nummer}: {e}")
+
+    await session.commit()
+    return {"scanned": len(results), "results": results}

@@ -4,3 +4,4 @@ export { StatsCards } from './StatsCards';
 export { ProfileCard } from './ProfileCard';
 export { PipelineControl } from './PipelineControl';
 export { RingDistribution } from './RingDistribution';
+export { RadarMap } from './RadarMap';
