@@ -1,4 +1,4 @@
-"""KVK Handelsregister API Client"""
+"""KVK Handelsregister API Client - Real Test Environment"""
 import os
 from typing import Optional, List
 import httpx
@@ -10,6 +10,7 @@ from .models import (
     KvKBasisprofiel,
     KvKVestiging,
     KvKSbiActiviteit,
+    KvKAdres,
 )
 
 
@@ -20,156 +21,85 @@ class KvKClient:
     API Documentation: https://developers.kvk.nl/
 
     Endpoints:
-    - Zoeken: Search for companies
-    - Basisprofiel: Get company basic profile
-    - Vestigingsprofiel: Get branch details
-    - Naamgeving: Get trade names
+    - Zoeken (v2): Search for companies
+    - Basisprofiel (v1): Get company basic profile
+    - Vestigingsprofiel (v1): Get branch details
+    - Naamgeving (v1): Get trade names
     """
 
     # Production API
-    BASE_URL = "https://api.kvk.nl/api/v1"
-    # Test API (for development)
-    TEST_URL = "https://api.kvk.nl/test/api/v1"
+    PROD_BASE_URL = "https://api.kvk.nl/api"
+    # Test API (free, with test data)
+    TEST_BASE_URL = "https://api.kvk.nl/test/api"
+
+    # Default test API key (public, for test environment only)
+    DEFAULT_TEST_API_KEY = "l7xx1f2691f2520d487b902f4e0b57a0b197"
 
     def __init__(self, api_key: Optional[str] = None, use_test: bool = True):
         """
         Initialize KVK client
 
         Args:
-            api_key: KVK API key (from kvk.nl developer portal)
+            api_key: KVK API key (uses test key if not provided)
             use_test: Use test API (default True for development)
         """
-        self.api_key = api_key or os.getenv("KVK_API_KEY")
-        self.base_url = self.TEST_URL if use_test else self.BASE_URL
-        self.use_mock = not self.api_key
+        self.use_test = use_test
+        self.base_url = self.TEST_BASE_URL if use_test else self.PROD_BASE_URL
 
-        if self.use_mock:
-            logger.warning("KVK API key not found - using mock data")
+        # Use provided key, environment variable, or default test key
+        if api_key:
+            self.api_key = api_key
+        elif os.getenv("KVK_API_KEY"):
+            self.api_key = os.getenv("KVK_API_KEY")
+        elif use_test:
+            self.api_key = self.DEFAULT_TEST_API_KEY
+            logger.info("KVK: Using default test API key")
         else:
-            logger.info(f"KVK client initialized (test={use_test})")
+            self.api_key = None
+            logger.warning("KVK: No API key - some requests may fail")
+
+        logger.info(f"KVK client initialized (test={use_test}, base={self.base_url})")
 
     async def _request(self, endpoint: str, params: Optional[dict] = None) -> dict:
         """Make authenticated request to KVK API"""
-        if self.use_mock:
-            return self._get_mock_response(endpoint, params)
-
         headers = {
             "apikey": self.api_key,
             "Accept": "application/json",
         }
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             url = f"{self.base_url}/{endpoint}"
+            logger.debug(f"KVK Request: {url}")
             response = await client.get(url, headers=headers, params=params)
             response.raise_for_status()
             return response.json()
-
-    def _get_mock_response(self, endpoint: str, params: Optional[dict] = None) -> dict:
-        """Return mock data for development/demo"""
-        if "zoeken" in endpoint.lower() or endpoint == "":
-            plaats = params.get("plaats", "Amsterdam") if params else "Amsterdam"
-            sbi = params.get("sbi", "") if params else ""
-            query = params.get("handelsnaam", params.get("q", "")) if params else ""
-
-            # Generate mock vakmensen based on search
-            mock_trades = {
-                "4322": [
-                    ("Van der Berg Loodgieters BV", "12345678", "Loodgieterswerk"),
-                    ("Pieterse Sanitair", "23456789", "Sanitair installatie"),
-                    ("Amsterdam Loodgieter Direct", "34567890", "Loodgieterswerkzaamheden"),
-                ],
-                "4321": [
-                    ("Jansen Elektrotechniek", "45678901", "Elektrotechnische installatie"),
-                    ("ElektroFix Nederland", "56789012", "Elektrische installaties"),
-                    ("Stroom & Meer BV", "67890123", "Elektricien werkzaamheden"),
-                ],
-                "4334": [
-                    ("Schildersbedrijf De Kwast", "78901234", "Schilderwerk"),
-                    ("ColorPro Painters", "89012345", "Schilderen en behangen"),
-                ],
-                "4332": [
-                    ("Timmerbedrijf Hout & Co", "90123456", "Timmerwerk"),
-                    ("De Gouden Spijker", "01234567", "Timmerwerkzaamheden"),
-                ],
-                "41": [
-                    ("Bouwbedrijf Nederland BV", "11223344", "Algemene bouw"),
-                    ("Constructie Van Dijk", "22334455", "Burgerlijke utiliteitsbouw"),
-                    ("ModernBouw Holding", "33445566", "Nieuwbouw en renovatie"),
-                ],
-            }
-
-            # Get trades for SBI or default
-            trades = mock_trades.get(sbi, [
-                ("Vakwerk Nederland BV", "44556677", "Diverse vakwerkzaamheden"),
-                ("Handyman Services", "55667788", "Klussenbedrijf"),
-                ("Pro Onderhoud", "66778899", "Onderhoud en reparatie"),
-            ])
-
-            resultaten = []
-            for naam, kvk, omschrijving in trades:
-                resultaten.append({
-                    "kvkNummer": kvk,
-                    "vestigingsnummer": f"000{kvk[:8]}",
-                    "naam": naam,
-                    "adres": {
-                        "binnenlandsAdres": {
-                            "type": "bezoekadres",
-                            "straatnaam": "Hoofdstraat",
-                            "huisnummer": len(kvk) * 2,
-                            "postcode": f"1{kvk[:3]}AB",
-                            "plaats": plaats,
-                        }
-                    },
-                    "type": "hoofdvestiging",
-                    "sbiActiviteiten": [
-                        {"sbiCode": sbi or "41", "sbiOmschrijving": omschrijving}
-                    ],
-                })
-
-            return {
-                "pagina": 1,
-                "resultatenPerPagina": 10,
-                "totaal": len(resultaten),
-                "resultaten": resultaten,
-            }
-
-        elif "basisprofielen" in endpoint.lower():
-            kvk = endpoint.split("/")[-1] if "/" in endpoint else "12345678"
-            return {
-                "kvkNummer": kvk,
-                "naam": "Mock Bedrijf BV",
-                "formeleRegistratiedatum": "20150101",
-                "sbiActiviteiten": [
-                    {"sbiCode": "41", "sbiOmschrijving": "Algemene bouw", "indHoofdactiviteit": "Ja"}
-                ],
-            }
-
-        return {}
 
     async def search(
         self,
         query: Optional[str] = None,
         kvk_nummer: Optional[str] = None,
+        vestigingsnummer: Optional[str] = None,
         handelsnaam: Optional[str] = None,
         straatnaam: Optional[str] = None,
-        plaats: Optional[str] = None,
+        huisnummer: Optional[str] = None,
         postcode: Optional[str] = None,
-        sbi: Optional[str] = None,
+        plaats: Optional[str] = None,
         type_filter: Optional[str] = None,
         pagina: int = 1,
         per_pagina: int = 10,
     ) -> KvKSearchResult:
         """
-        Search KVK Handelsregister
+        Search KVK Handelsregister (v2 API)
 
         Args:
-            query: Free text search
+            query: Free text search (naam parameter)
             kvk_nummer: KVK number (8 digits)
+            vestigingsnummer: Branch number (12 digits)
             handelsnaam: Trade name
             straatnaam: Street name
-            plaats: City/municipality
+            huisnummer: House number
             postcode: Postal code
-            sbi: SBI activity code
+            plaats: City/municipality
             type_filter: hoofdvestiging, nevenvestiging, rechtspersoon
             pagina: Page number
             per_pagina: Results per page (max 100)
@@ -179,83 +109,151 @@ class KvKClient:
         """
         params = {
             "pagina": pagina,
-            "resultatenPerPagina": min(per_pagina, 100),
+            "resultatenperpagina": min(per_pagina, 100),
         }
 
+        # Map parameters to KVK API names
         if query:
-            params["q"] = query
+            params["naam"] = query
         if kvk_nummer:
             params["kvkNummer"] = kvk_nummer
+        if vestigingsnummer:
+            params["vestigingsnummer"] = vestigingsnummer
         if handelsnaam:
             params["handelsnaam"] = handelsnaam
         if straatnaam:
             params["straatnaam"] = straatnaam
-        if plaats:
-            params["plaats"] = plaats
+        if huisnummer:
+            params["huisnummer"] = huisnummer
         if postcode:
             params["postcode"] = postcode
-        if sbi:
-            params["sbi"] = sbi
+        if plaats:
+            params["plaats"] = plaats
         if type_filter:
             params["type"] = type_filter
 
         logger.info(f"KVK Search: {params}")
-        data = await self._request("zoeken", params)
 
-        return KvKSearchResult(
-            pagina=data.get("pagina", 1),
-            resultatenPerPagina=data.get("resultatenPerPagina", 10),
-            totaal=data.get("totaal", 0),
-            resultaten=[
-                KvKSearchResultItem(
-                    kvkNummer=r["kvkNummer"],
-                    vestigingsnummer=r.get("vestigingsnummer"),
-                    naam=r["naam"],
-                    adres=r.get("adres"),
-                    type=r.get("type", "onbekend"),
-                    sbiActiviteiten=[
-                        KvKSbiActiviteit(**sbi) for sbi in r.get("sbiActiviteiten", [])
-                    ] if r.get("sbiActiviteiten") else None,
-                )
-                for r in data.get("resultaten", [])
-            ],
-        )
+        try:
+            data = await self._request("v2/zoeken", params)
 
-    async def get_basisprofiel(self, kvk_nummer: str) -> KvKBasisprofiel:
+            return KvKSearchResult(
+                pagina=data.get("pagina", 1),
+                resultatenPerPagina=data.get("resultatenPerPagina", 10),
+                totaal=data.get("totaal", 0),
+                resultaten=[
+                    KvKSearchResultItem(
+                        kvkNummer=r["kvkNummer"],
+                        vestigingsnummer=r.get("vestigingsnummer"),
+                        naam=r["naam"],
+                        adres=r.get("adres"),
+                        type=r.get("type", "onbekend"),
+                        sbiActiviteiten=[
+                            KvKSbiActiviteit(**sbi) for sbi in r.get("sbiActiviteiten", [])
+                        ] if r.get("sbiActiviteiten") else None,
+                    )
+                    for r in data.get("resultaten", [])
+                ],
+            )
+        except httpx.HTTPStatusError as e:
+            logger.error(f"KVK Search failed: {e}")
+            # Return empty result on error
+            return KvKSearchResult(pagina=1, resultatenPerPagina=10, totaal=0, resultaten=[])
+
+    async def get_basisprofiel(self, kvk_nummer: str) -> Optional[KvKBasisprofiel]:
         """
-        Get company basic profile
+        Get company basic profile (v1 API)
 
         Args:
             kvk_nummer: KVK number (8 digits)
 
         Returns:
-            KvKBasisprofiel with company details
+            KvKBasisprofiel with company details, or None on error
         """
-        data = await self._request(f"basisprofielen/{kvk_nummer}")
-        return KvKBasisprofiel(**data)
+        try:
+            data = await self._request(f"v1/basisprofielen/{kvk_nummer}")
+
+            # Extract embedded data
+            embedded = data.get("_embedded", {})
+            hoofdvestiging = embedded.get("hoofdvestiging", {})
+            eigenaar = embedded.get("eigenaar", {})
+
+            return KvKBasisprofiel(
+                kvkNummer=data["kvkNummer"],
+                indNonMailing=data.get("indNonMailing"),
+                naam=data.get("naam"),
+                formeleRegistratiedatum=data.get("formeleRegistratiedatum"),
+                statutaireNaam=data.get("statutaireNaam"),
+                totaalWerkzamePersonen=data.get("totaalWerkzamePersonen") or hoofdvestiging.get("totaalWerkzamePersonen"),
+                handelsnamen=[h.get("naam") for h in data.get("handelsnamen", [])],
+                sbiActiviteiten=[
+                    KvKSbiActiviteit(**sbi) for sbi in data.get("sbiActiviteiten", [])
+                ],
+                rechtsvorm=eigenaar.get("rechtsvorm"),
+                hoofdvestiging=hoofdvestiging,
+            )
+        except httpx.HTTPStatusError as e:
+            logger.error(f"KVK Basisprofiel failed for {kvk_nummer}: {e}")
+            return None
 
     async def get_vestigingsprofiel(
         self, vestigingsnummer: str, geo_data: bool = False
-    ) -> KvKVestiging:
+    ) -> Optional[KvKVestiging]:
         """
-        Get branch/location profile
+        Get branch/location profile (v1 API)
 
         Args:
             vestigingsnummer: Branch number (12 digits)
-            geo_data: Include geographic data
+            geo_data: Include geographic data (GPS coordinates)
 
         Returns:
-            KvKVestiging with branch details
+            KvKVestiging with branch details, or None on error
         """
-        params = {"geoData": "true"} if geo_data else None
-        data = await self._request(f"vestigingsprofielen/{vestigingsnummer}", params)
-        return KvKVestiging(**data)
+        try:
+            params = {"geoData": "true"} if geo_data else None
+            data = await self._request(f"v1/vestigingsprofielen/{vestigingsnummer}", params)
+
+            return KvKVestiging(
+                vestigingsnummer=data["vestigingsnummer"],
+                kvkNummer=data.get("kvkNummer"),
+                eersteHandelsnaam=data.get("eersteHandelsnaam"),
+                indHoofdvestiging=data.get("indHoofdvestiging"),
+                indCommercieleVestiging=data.get("indCommercieleVestiging"),
+                voltijdWerkzamePersonen=data.get("voltijdWerkzamePersonen"),
+                deeltijdWerkzamePersonen=data.get("deeltijdWerkzamePersonen"),
+                totaalWerkzamePersonen=data.get("totaalWerkzamePersonen"),
+                adressen=[KvKAdres(**addr) for addr in data.get("adressen", [])],
+                websites=data.get("websites"),
+                sbiActiviteiten=[
+                    KvKSbiActiviteit(**sbi) for sbi in data.get("sbiActiviteiten", [])
+                ],
+            )
+        except httpx.HTTPStatusError as e:
+            logger.error(f"KVK Vestigingsprofiel failed for {vestigingsnummer}: {e}")
+            return None
+
+    async def get_vestigingen(self, kvk_nummer: str) -> List[dict]:
+        """
+        Get all vestigingen (branches) for a company
+
+        Args:
+            kvk_nummer: KVK number (8 digits)
+
+        Returns:
+            List of vestigingen
+        """
+        try:
+            data = await self._request(f"v1/basisprofielen/{kvk_nummer}/vestigingen")
+            return data.get("vestigingen", [])
+        except httpx.HTTPStatusError as e:
+            logger.error(f"KVK Vestigingen failed for {kvk_nummer}: {e}")
+            return []
 
     async def search_vakmensen(
         self,
         plaats: Optional[str] = None,
         vakgebied: Optional[str] = None,
-        sbi_codes: Optional[List[str]] = None,
+        sbi_code: Optional[str] = None,
     ) -> KvKSearchResult:
         """
         Search for vakmensen (contractors) by location and trade
@@ -265,38 +263,65 @@ class KvKClient:
         Args:
             plaats: City/municipality
             vakgebied: Trade category (loodgieter, elektra, etc.)
-            sbi_codes: Specific SBI codes to search
+            sbi_code: Specific SBI code to search
 
         Returns:
             KvKSearchResult with matching contractors
         """
-        # Map vakgebied to SBI codes
-        vakgebied_sbi_map = {
-            "bouw": ["41", "4120"],
-            "loodgieter": ["4322"],
-            "elektra": ["4321"],
-            "schilder": ["4334"],
-            "timmerman": ["4332"],
-            "dakdekker": ["4391"],
-            "tuinman": ["8130"],
-            "schoonmaak": ["8121"],
-            "cv": ["4322"],  # CV installation often under loodgieter
-            "metselaar": ["4399"],
-            "stukadoor": ["4331"],
-            "glaszetter": ["4334"],
-        }
+        # Build search query
+        search_query = None
+        if vakgebied:
+            # Map Dutch trade names to search terms
+            trade_terms = {
+                "loodgieter": "loodgieter",
+                "elektra": "elektr",
+                "elektrician": "elektr",
+                "schilder": "schilder",
+                "timmerman": "timmer",
+                "dakdekker": "dakdek",
+                "tuinman": "hovenier",
+                "schoonmaak": "schoonmaak",
+                "metselaar": "metsel",
+                "stukadoor": "stukadoor",
+                "bouw": "bouw",
+                "aannemer": "aannemer",
+            }
+            search_query = trade_terms.get(vakgebied.lower(), vakgebied)
 
-        # Get SBI codes
-        if sbi_codes:
-            codes = sbi_codes
-        elif vakgebied and vakgebied.lower() in vakgebied_sbi_map:
-            codes = vakgebied_sbi_map[vakgebied.lower()]
-        else:
-            codes = ["41"]  # Default to construction
-
-        # Search with first SBI code (API limitation)
         return await self.search(
+            query=search_query,
             plaats=plaats,
-            sbi=codes[0] if codes else None,
             type_filter="hoofdvestiging",
         )
+
+    async def get_company_details(self, kvk_nummer: str) -> dict:
+        """
+        Get comprehensive company details including all vestigingen
+
+        Args:
+            kvk_nummer: KVK number (8 digits)
+
+        Returns:
+            Complete company profile with vestigingen
+        """
+        basisprofiel = await self.get_basisprofiel(kvk_nummer)
+        if not basisprofiel:
+            return {}
+
+        vestigingen = await self.get_vestigingen(kvk_nummer)
+
+        return {
+            "kvkNummer": basisprofiel.kvkNummer,
+            "naam": basisprofiel.naam,
+            "statutaireNaam": basisprofiel.statutaireNaam,
+            "rechtsvorm": basisprofiel.rechtsvorm,
+            "registratiedatum": basisprofiel.formeleRegistratiedatum,
+            "werkzamePersonen": basisprofiel.totaalWerkzamePersonen,
+            "handelsnamen": basisprofiel.handelsnamen,
+            "sbiActiviteiten": [
+                {"code": s.sbiCode, "omschrijving": s.sbiOmschrijving}
+                for s in (basisprofiel.sbiActiviteiten or [])
+            ],
+            "hoofdvestiging": basisprofiel.hoofdvestiging,
+            "vestigingen": vestigingen,
+        }

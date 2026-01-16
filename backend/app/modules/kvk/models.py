@@ -48,6 +48,8 @@ class KvKVestiging(BaseModel):
     adressen: Optional[List[KvKAdres]] = None
     websites: Optional[List[str]] = None
     sbiActiviteiten: Optional[List[KvKSbiActiviteit]] = None
+    voltijdWerkzamePersonen: Optional[int] = None
+    deeltijdWerkzamePersonen: Optional[int] = None
     totaalWerkzamePersonen: Optional[int] = None
 
 
@@ -58,8 +60,11 @@ class KvKBasisprofiel(BaseModel):
     naam: Optional[str] = None
     formeleRegistratiedatum: Optional[str] = None
     statutaireNaam: Optional[str] = None
+    totaalWerkzamePersonen: Optional[int] = None
     handelsnamen: Optional[List[str]] = None
     sbiActiviteiten: Optional[List[KvKSbiActiviteit]] = None
+    rechtsvorm: Optional[str] = None
+    hoofdvestiging: Optional[dict] = None
 
 
 class KvKSearchResultItem(BaseModel):

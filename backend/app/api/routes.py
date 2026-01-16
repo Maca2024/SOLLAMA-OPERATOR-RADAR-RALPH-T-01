@@ -373,38 +373,42 @@ async def get_ring_info():
 
 @router.get("/kvk/search")
 async def kvk_search(
-    query: Optional[str] = None,
+    naam: Optional[str] = None,
     kvkNummer: Optional[str] = None,
+    vestigingsnummer: Optional[str] = None,
     handelsnaam: Optional[str] = None,
     straatnaam: Optional[str] = None,
-    plaats: Optional[str] = None,
+    huisnummer: Optional[str] = None,
     postcode: Optional[str] = None,
-    sbi: Optional[str] = None,
+    plaats: Optional[str] = None,
     type: Optional[str] = None,
     pagina: int = 1,
     resultatenPerPagina: int = 10,
 ):
     """
-    Search KVK Handelsregister
+    Search KVK Handelsregister (Real Test API)
 
     Search for companies by various criteria including:
-    - Free text query
-    - KVK number
-    - Trade name (handelsnaam)
-    - Address (straatnaam, plaats, postcode)
-    - SBI activity code
-    - Type (hoofdvestiging, nevenvestiging, rechtspersoon)
+    - naam: Free text search on company name
+    - kvkNummer: KVK number (8 digits)
+    - vestigingsnummer: Branch number (12 digits)
+    - handelsnaam: Trade name
+    - straatnaam, huisnummer, postcode, plaats: Address
+    - type: hoofdvestiging, nevenvestiging, rechtspersoon
+
+    Test KVK numbers: 68750110, 69599068, 90003942, 24330087
     """
     client = KvKClient(use_test=True)
 
     result = await client.search(
-        query=query,
+        query=naam,
         kvk_nummer=kvkNummer,
+        vestigingsnummer=vestigingsnummer,
         handelsnaam=handelsnaam,
         straatnaam=straatnaam,
-        plaats=plaats,
+        huisnummer=huisnummer,
         postcode=postcode,
-        sbi=sbi,
+        plaats=plaats,
         type_filter=type,
         pagina=pagina,
         per_pagina=resultatenPerPagina,
@@ -437,36 +441,80 @@ async def kvk_basisprofiel(kvk_nummer: str):
     Get company basic profile from KVK
 
     Returns basic company information including:
-    - Company name
+    - Company name and statutory name
     - Registration date
     - SBI activities
     - Trade names
+    - Number of employees
+    - Legal form (rechtsvorm)
+    - Hoofdvestiging details
+
+    Test KVK numbers: 68750110, 69599068, 90003942
     """
     client = KvKClient(use_test=True)
     profile = await client.get_basisprofiel(kvk_nummer)
+    if not profile:
+        raise HTTPException(status_code=404, detail=f"KVK nummer {kvk_nummer} niet gevonden")
     return profile.model_dump()
+
+
+@router.get("/kvk/vestigingsprofiel/{vestigingsnummer}")
+async def kvk_vestigingsprofiel(vestigingsnummer: str, geoData: bool = False):
+    """
+    Get branch/location profile from KVK
+
+    Returns vestiging details including:
+    - Address (bezoek- en correspondentieadres)
+    - SBI activities
+    - Number of employees
+    - Websites
+    - GPS coordinates (if geoData=true)
+
+    Test vestigingsnummer: 000037178598
+    """
+    client = KvKClient(use_test=True)
+    vestiging = await client.get_vestigingsprofiel(vestigingsnummer, geo_data=geoData)
+    if not vestiging:
+        raise HTTPException(status_code=404, detail=f"Vestigingsnummer {vestigingsnummer} niet gevonden")
+    return vestiging.model_dump()
+
+
+@router.get("/kvk/bedrijf/{kvk_nummer}")
+async def kvk_bedrijf_details(kvk_nummer: str):
+    """
+    Get comprehensive company details from KVK
+
+    Returns complete company profile with:
+    - Basic profile information
+    - All vestigingen (branches)
+    - Legal form and registration details
+    """
+    client = KvKClient(use_test=True)
+    details = await client.get_company_details(kvk_nummer)
+    if not details:
+        raise HTTPException(status_code=404, detail=f"KVK nummer {kvk_nummer} niet gevonden")
+    return details
 
 
 @router.get("/kvk/vakmensen")
 async def kvk_vakmensen(
     plaats: Optional[str] = None,
     vakgebied: Optional[str] = None,
-    sbi: Optional[str] = None,
 ):
     """
     Search for vakmensen (contractors) in KVK
 
     Convenience endpoint for finding contractors by:
-    - Location (plaats/gemeente)
-    - Trade category (vakgebied: loodgieter, elektra, schilder, etc.)
-    - SBI code
+    - plaats: Location (gemeente)
+    - vakgebied: Trade category (loodgieter, elektra, schilder, timmerman, etc.)
+
+    Note: Uses KVK test data - search "test" to see results
     """
     client = KvKClient(use_test=True)
 
     result = await client.search_vakmensen(
         plaats=plaats,
         vakgebied=vakgebied,
-        sbi_codes=[sbi] if sbi else None,
     )
 
     return {
@@ -475,9 +523,10 @@ async def kvk_vakmensen(
         "vakmensen": [
             {
                 "kvkNummer": r.kvkNummer,
+                "vestigingsnummer": r.vestigingsnummer,
                 "naam": r.naam,
                 "plaats": r.adres.get("binnenlandsAdres", {}).get("plaats") if r.adres else None,
-                "adres": r.adres.get("binnenlandsAdres", {}).get("volledigAdres") if r.adres else None,
+                "straat": r.adres.get("binnenlandsAdres", {}).get("straatnaam") if r.adres else None,
                 "type": r.type,
                 "activiteiten": [s.sbiOmschrijving for s in (r.sbiActiviteiten or [])],
             }
