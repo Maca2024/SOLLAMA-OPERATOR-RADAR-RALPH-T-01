@@ -1,6 +1,6 @@
 """RADAR - Async web scraper with stealth capabilities"""
 import asyncio
-from typing import Optional, List, AsyncGenerator
+from typing import Optional, List, AsyncGenerator, Any, TYPE_CHECKING
 from datetime import datetime
 from loguru import logger
 from bs4 import BeautifulSoup
@@ -9,12 +9,15 @@ from ...models import ScrapedData
 from .stealth import StealthConfig, create_stealth_config
 
 # Playwright import with fallback for testing
+PLAYWRIGHT_AVAILABLE = False
 try:
     from playwright.async_api import async_playwright, Page, Browser
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
     logger.warning("Playwright not available - using mock mode")
+    # Define dummy types for type hints
+    Page = Any
+    Browser = Any
 
 
 class RadarScraper:

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-⟁ LEVEL 9 VERIFICATION TEST
-============================
+LEVEL 9 VERIFICATION TEST
+=========================
 This is the ultimate test that validates the entire Solvari Radar system.
 
 The system MUST:
@@ -150,7 +151,7 @@ def create_mock_scraped_data(profile: dict) -> ScrapedData:
 
 async def test_radar_module() -> List[ScrapedData]:
     """Test 1: RADAR module can process URLs without crashing"""
-    print("\n🔭 TEST 1: RADAR Module")
+    print("\n[RADAR] TEST 1: RADAR Module")
     print("-" * 40)
 
     scraped_data = []
@@ -166,10 +167,10 @@ async def test_radar_module() -> List[ScrapedData]:
             data = create_mock_scraped_data(profile)
             scraped_data.append(data)
 
-            print(f"  ✓ Scraped {len(data.text_content)} characters")
+            print(f"  [OK] Scraped {len(data.text_content)} characters")
 
     assert len(scraped_data) == 3, f"Expected 3 scraped items, got {len(scraped_data)}"
-    print(f"\n✅ RADAR: All {len(scraped_data)} URLs scraped successfully")
+    print(f"\n[PASS] RADAR: All {len(scraped_data)} URLs scraped successfully")
 
     return scraped_data
 
@@ -178,7 +179,7 @@ async def test_brain_classification(
     scraped_data: List[ScrapedData]
 ) -> List[Tuple[ScrapedData, 'ProfileClassification']]:
     """Test 2: BRAIN module correctly classifies each profile"""
-    print("\n🧠 TEST 2: BRAIN Classification")
+    print("\n[BRAIN] TEST 2: BRAIN Classification")
     print("-" * 40)
 
     classifier = BrainClassifier()
@@ -192,10 +193,10 @@ async def test_brain_classification(
 
         expected_ring = expected["expected_ring"]
 
-        print(f"  → Ring: {classification.ring.value} ({classification.ring.name})")
-        print(f"  → Quality Score: {classification.quality_score:.1f}")
-        print(f"  → Confidence: {classification.confidence:.1%}")
-        print(f"  → Expected: Ring {expected_ring.value} ({expected_ring.name})")
+        print(f"  -> Ring: {classification.ring.value} ({classification.ring.name})")
+        print(f"  -> Quality Score: {classification.quality_score:.1f}")
+        print(f"  -> Confidence: {classification.confidence:.1%}")
+        print(f"  -> Expected: Ring {expected_ring.value} ({expected_ring.name})")
 
         # Verify classification
         assert classification.ring == expected_ring, \
@@ -207,9 +208,9 @@ async def test_brain_classification(
         assert 0 <= classification.confidence <= 1, \
             f"Confidence {classification.confidence} out of range [0, 1]"
 
-        print(f"  ✓ Correctly classified as Ring {classification.ring.value}")
+        print(f"  [OK] Correctly classified as Ring {classification.ring.value}")
 
-    print(f"\n✅ BRAIN: All {len(results)} profiles classified correctly")
+    print(f"\n[PASS] BRAIN: All {len(results)} profiles classified correctly")
 
     return results
 
@@ -218,7 +219,7 @@ def test_hook_generation(
     classified_profiles: List[Tuple[ScrapedData, 'ProfileClassification']]
 ) -> List['OutreachMessage']:
     """Test 3: HOOK module generates appropriate outreach"""
-    print("\n🎣 TEST 3: HOOK Outreach Generation")
+    print("\n[HOOK] TEST 3: HOOK Outreach Generation")
     print("-" * 40)
 
     from uuid import uuid4
@@ -241,9 +242,9 @@ def test_hook_generation(
 
         expected_channel = expected_channels[classification.ring]
 
-        print(f"  → Channel: {message.channel}")
-        print(f"  → Template: {message.template_type}")
-        print(f"  → Body length: {len(message.body)} chars")
+        print(f"  -> Channel: {message.channel}")
+        print(f"  -> Template: {message.template_type}")
+        print(f"  -> Body length: {len(message.body)} chars")
 
         # Verify message
         assert message.channel == expected_channel, \
@@ -255,16 +256,16 @@ def test_hook_generation(
         assert message.ring == classification.ring, \
             f"Message ring mismatch"
 
-        print(f"  ✓ Generated {message.channel} message")
+        print(f"  [OK] Generated {message.channel} message")
 
-    print(f"\n✅ HOOK: All {len(messages)} outreach messages generated")
+    print(f"\n[PASS] HOOK: All {len(messages)} outreach messages generated")
 
     return messages
 
 
 def test_message_content(messages: List['OutreachMessage']):
     """Test 4: Verify message content contains expected hooks"""
-    print("\n📝 TEST 4: Message Content Validation")
+    print("\n[CONTENT] TEST 4: Message Content Validation")
     print("-" * 40)
 
     expected_hooks = {
@@ -285,15 +286,15 @@ def test_message_content(messages: List['OutreachMessage']):
         assert len(found_hooks) > 0, \
             f"Ring {ring.value} message missing expected hooks: {hooks}"
 
-        print(f"  ✓ Found hooks: {found_hooks}")
+        print(f"  [OK] Found hooks: {found_hooks}")
 
-    print(f"\n✅ MESSAGE CONTENT: All messages contain appropriate hooks")
+    print(f"\n[PASS] MESSAGE CONTENT: All messages contain appropriate hooks")
 
 
 async def run_level9_tests():
     """Run all Level 9 verification tests"""
     print("=" * 60)
-    print("⟁ SOLVARI RADAR - LEVEL 9 VERIFICATION")
+    print("SOLVARI RADAR - LEVEL 9 VERIFICATION")
     print("=" * 60)
     print(f"Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
@@ -312,13 +313,13 @@ async def run_level9_tests():
 
         # Summary
         print("\n" + "=" * 60)
-        print("🏆 LEVEL 9 VERIFICATION: ALL TESTS PASSED")
+        print("[PASS] LEVEL 9 VERIFICATION: ALL TESTS PASSED")
         print("=" * 60)
         print("""
-        ✅ RADAR:   3/3 URLs scraped
-        ✅ BRAIN:   3/3 profiles classified correctly
-        ✅ HOOK:    3/3 outreach messages generated
-        ✅ CONTENT: All messages validated
+        [OK] RADAR:   3/3 URLs scraped
+        [OK] BRAIN:   3/3 profiles classified correctly
+        [OK] HOOK:    3/3 outreach messages generated
+        [OK] CONTENT: All messages validated
 
         The Solvari Radar system is PRODUCTION READY.
         """)
@@ -326,10 +327,10 @@ async def run_level9_tests():
         return True
 
     except AssertionError as e:
-        print(f"\n❌ LEVEL 9 VERIFICATION FAILED: {e}")
+        print(f"\n[FAIL] LEVEL 9 VERIFICATION FAILED: {e}")
         return False
     except Exception as e:
-        print(f"\n💥 UNEXPECTED ERROR: {e}")
+        print(f"\n[ERROR] UNEXPECTED ERROR: {e}")
         import traceback
         traceback.print_exc()
         return False
