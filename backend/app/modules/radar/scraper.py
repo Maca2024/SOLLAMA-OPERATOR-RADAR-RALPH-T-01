@@ -46,16 +46,23 @@ class RadarScraper:
             logger.info("Running in mock mode - no browser started")
             return
 
-        self._playwright = await async_playwright().start()
-        self.browser = await self._playwright.chromium.launch(
-            headless=True,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--disable-dev-shm-usage",
-                "--no-sandbox",
-            ]
-        )
-        logger.info("🔭 RADAR browser initialized")
+        try:
+            self._playwright = await async_playwright().start()
+            self.browser = await self._playwright.chromium.launch(
+                headless=True,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-dev-shm-usage",
+                    "--no-sandbox",
+                ]
+            )
+            logger.info("RADAR browser initialized")
+        except Exception as e:
+            logger.warning(f"Browser launch failed: {e} - using mock mode")
+            self.browser = None
+            if self._playwright:
+                await self._playwright.stop()
+                self._playwright = None
 
     async def stop(self):
         """Cleanup browser resources"""
